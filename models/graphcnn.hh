@@ -9,34 +9,46 @@
 #include "linear.hh"
 #include "batchnorm.hh"
 #include "mlp.hh"
+#include "../s2vgraph.hh"
 
 class GraphCNN {
 private:
-int num_layers_, mlp_num_layers_;
-int input_dim_, hidden_dim_, output_dim_;
-float drop_out_, learn_eps_;
-std::string graph_pooling_type_, neighbor_pooling_type_;
-std::vector<float> epss_;
-std::vector<Linear*> linears_;
-std::vector<BatchNorm*> batchnorms_;
-std::vector<MLP*> mlps_;
+    int num_layers_, mlp_num_layers_;
+    int input_dim_, hidden_dim_, output_dim_;
+    bool learn_eps_;
+    std::string graph_pooling_type_, neighbor_pooling_type_;
+    std::vector<float> epss_;
+    std::vector<Linear*> linears_;
+    std::vector<BatchNorm*> batchnorms_;
+    std::vector<MLP*> mlps_;
 
-void build_linear(
-    const std::string& tag, 
-    std::map<std::string, std::vector<std::vector<float>> > &data
-);
-void build_mlp(
-    const std::string& tag, int input_dim, 
-    std::map<std::string, std::vector<std::vector<float>> > &data
-);
+    void build_linear(
+        const std::string& tag, 
+        std::map<std::string, std::vector<std::vector<float>> > &data
+    );
+    void build_mlp(
+        const std::string& tag, int input_dim, 
+        std::map<std::string, std::vector<std::vector<float>> > &data
+    );
+
+    void get_node_feature(const std::vector<S2VGraph*> &data, MyMatrix& node_feature);
+    void preprocess_graphpool(const std::vector<S2VGraph*> &data, MyMatrix& graph_pool);
+    void preprocess_neighbors_maxpool(
+        const std::vector<S2VGraph*> &data, MyMatrix *padded_neighbor_list
+    );
+    void preprocess_neighbors_sumavepool(
+        const std::vector<S2VGraph*> &data, MyMatrix *adj_block
+    );
 
 public:
     GraphCNN(
         std::map<std::string, std::vector<std::vector<float>> > &data, 
-        float drop_out, float learn_eps, 
+        bool learn_eps, 
         const std::string &graph_pooling_type, const std::string &neighbor_pooling_type
     );
     ~GraphCNN();
+
+    void forward(const std::vector<S2VGraph*> &data, int tag_sum, std::vector<int> &output);
 };
 
 
@@ -79,7 +91,7 @@ void GraphCNN::build_mlp(
 
 GraphCNN::GraphCNN(
     std::map<std::string, std::vector<std::vector<float>> > &data, 
-    float drop_out, float learn_eps, 
+    bool learn_eps, 
     const std::string &graph_pooling_type, const std::string &neighbor_pooling_type
 ) {
     num_layers_ = data["eps"][0].size() + 1;
@@ -87,7 +99,6 @@ GraphCNN::GraphCNN(
         std::cerr << "error: invalid value of num_layer!" << std::endl;
         exit(0);
     }
-    drop_out_ = drop_out;
     learn_eps_ = learn_eps;
     graph_pooling_type_ = graph_pooling_type;
     neighbor_pooling_type_ = neighbor_pooling_type;
@@ -126,6 +137,118 @@ GraphCNN::~GraphCNN() {
         delete p;
     for (auto p : mlps_)
         delete p;
+}
+
+
+void GraphCNN::get_node_feature(
+    const std::vector<S2VGraph*> &data, MyMatrix &node_feature
+) {
+    int begin_idx = 0;
+    for (const auto &g : data) {
+        auto f = g->get_node_features();
+        for (const auto &p : f)
+            node_feature.set_value(1, p.first + begin_idx, p.second);
+        begin_idx += g->get_node_sum();
+    }
+}
+
+
+void GraphCNN::preprocess_graphpool(
+    const std::vector<S2VGraph*> &data, MyMatrix& graph_pool
+) {
+    int begin_idx = 0;
+    for (int i = 0; i < data.size(); ++i) {
+        float elem = 0;
+        int g_node_sum = data[i]->get_node_sum();
+        if (graph_pooling_type_ == "average")
+            elem = 1/float(g_node_sum);
+        else 
+            elem = 1;
+        for (int j = 0; j < g_node_sum; ++j)
+            graph_pool.set_value(elem, i, begin_idx+j);
+        begin_idx += g_node_sum;
+    }
+}
+
+
+void GraphCNN::preprocess_neighbors_maxpool(
+    const std::vector<S2VGraph*> &data, MyMatrix *padded_neighbor_list
+) {
+    int max_degree = padded_neighbor_list->get_row_width();
+    if (!learn_eps_)
+        max_degree--;
+    int begin_idx = 0;
+    for (int i = 0; i < data.size(); ++i) {
+        auto g_neighbors = data[i]->get_neighbors();
+        int g_node_sum = data[i]->get_node_sum();
+        for (int j = 0; j < g_node_sum; ++j) {
+            int cnt = 0;
+            for (auto k : g_neighbors[j]) 
+                padded_neighbor_list->set_value(k+begin_idx, j+begin_idx, cnt++);
+            for (int k = g_neighbors[j].size(); k < max_degree; ++k)
+                padded_neighbor_list->set_value(-1, j+begin_idx, k);
+            if (!learn_eps_)
+                padded_neighbor_list->set_value(j+begin_idx, j+begin_idx, max_degree);
+        }
+        begin_idx += data[i]->get_node_sum();
+    }
+}
+
+
+void GraphCNN::preprocess_neighbors_sumavepool(
+    const std::vector<S2VGraph*> &data, MyMatrix *adj_block
+) {
+    int begin_idx = 0;
+    for (auto g : data) {
+        int g_node_sum = g->get_node_sum();
+        auto g_edges = g->get_edges();
+        for (const auto &p : g_edges)
+            adj_block->set_value(1, p.first+begin_idx, p.second+begin_idx);
+        if (!learn_eps_) {
+            for (int i = 0; i < g_node_sum; ++i)
+                adj_block->set_value(1, i+begin_idx, i+begin_idx);
+        }
+        begin_idx += g_node_sum;
+    }
+}
+
+
+void GraphCNN::forward(
+    const std::vector<S2VGraph*> &data, int tag_sum, std::vector<int> &output
+) {
+    // get node features
+    int node_sum = 0;
+    for (const auto &g : data)
+        node_sum += g->get_node_sum();
+    MyMatrix node_feature(node_sum, tag_sum);
+    get_node_feature(data, node_feature);
+
+    // get graph pool
+    MyMatrix graph_pool(data.size(), node_sum);
+    preprocess_graphpool(data, graph_pool);
+
+    MyMatrix *neighbor_block;
+
+    // get neibor list
+    if (neighbor_pooling_type_ == "max") {
+        int max_deg = 0;
+        for (const auto &g : data)
+            max_deg = std::max(g->get_max_degree(), max_deg);
+        int pad_size = max_deg;
+        if (!learn_eps_)
+            pad_size += 1;
+        MyMatrix padded_neighbor_list(node_sum, pad_size);
+        neighbor_block = new MyMatrix(node_sum, pad_size);
+        preprocess_neighbors_maxpool(data, neighbor_block);
+    } else {
+        neighbor_block = new MyMatrix(node_sum, node_sum);
+        preprocess_neighbors_sumavepool(data, neighbor_block);
+    }
+
+    std::vector<MyMatrix> hidden_rep;
+    hidden_rep.push_back(node_feature);
+
+    delete neighbor_block;
 }
 
 #endif

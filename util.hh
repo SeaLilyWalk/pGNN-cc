@@ -13,7 +13,7 @@
 
 void loadData(
     const std::string& dataset, bool degree_as_tag, 
-    std::vector<S2VGraph*> &graph_list, int &label_sum
+    std::vector<S2VGraph*> &graph_list, int &label_sum, int &tag_sum
 ) {
     std::cout << "Loading data..." << std::endl;
 
@@ -60,19 +60,13 @@ void loadData(
     int max_degree = 0;
     std::set<int> tagset;
     for (auto& g : graph_list) {
-        std::vector<float> edge_t, t; // to build the transpose matrix of edges
         for (int i = 0; i < g->neighbors_.size(); ++i) {
-            for (auto j : g->neighbors_[i]) {
-                edge_t.push_back(i);
-                t.push_back(j);
-            }
+            for (auto j : g->neighbors_[i]) 
+                g->edges_.push_back(std::pair<int, int>(i, j));
             // get the max degree of the node in a subgraph
             max_degree = std::max(max_degree, int(g->neighbors_[i].size()));
         }
-        for (auto to : t)
-            edge_t.push_back(to);
-        g->edge_mat_ = new MyMatrix(2, edge_t.size()/2);
-        g->edge_mat_->copy(edge_t);
+        g->max_degree_ = max_degree;
         // one-hot code the label of a graph
         g->label_ = label_dict[g->label_];
         if (degree_as_tag) {
@@ -88,13 +82,15 @@ void loadData(
     // build the node_features of the graph
     std::map<int, int> tag2idx;
     int cnt = 0;
+    tag_sum = tagset.size();
     for (auto i : tagset) 
         tag2idx[i] = cnt++;
     for (auto &g : graph_list) {
-        g->node_features_ = new MyMatrix(g->node_tags_.size(), tagset.size());
+        // g->node_features_ = new MyMatrix(g->node_tags_.size(), tagset.size());
         for (int i = 0; i < g->node_tags_.size(); ++i)
             for (auto tag : g->node_tags_)
-                g->node_features_->set_value(1, i, tag2idx[tag]);
+                // g->node_features_->set_value(1, i, tag2idx[tag]);
+                g->node_features_.push_back(std::pair<int, int>(i, tag2idx[tag]));
     }
 
     std::cout << "# classes: " << label_dict.size() << std::endl;
