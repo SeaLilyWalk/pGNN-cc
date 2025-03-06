@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "models/graphcnn.hh"
+#include "models/my_matrix.hh"
 #include "s2vgraph.hh"
 #include "util.hh"
 
@@ -77,13 +78,28 @@ int main(int argc, char** argv) {
     loadData(data_path, 0, graph_list, label_sum, tag_sum);
 
     int g_list_size = graph_list.size();
+    int output_dim = model.get_output_dim();
+    int correct = 0;
     for (int i = 0; i < g_list_size; i += 64) {
         std::vector<S2VGraph*> batch;
         for (int j = i; j < i+64 && j < g_list_size; ++j) 
             batch.push_back(graph_list[j]);
-        std::vector<int> output;
+        int batch_size = 64;
+        if (g_list_size - i < 64)
+            batch_size = g_list_size - i;
+        MyMatrix output(output_dim, batch_size);
         model.forward(batch, tag_sum, output);
+        int pre;
+        for (int j = i; j < i+batch_size; ++j) {
+            pre = output.get_max_idx(0, j-i);
+            if (pre == graph_list[j]->get_label()) {
+                correct++;
+            }
+        }
     }
+    float accuracy =  correct;
+    accuracy /= float(g_list_size);
+    std::cout << "accuracy: " << accuracy << std::endl;
 
     deleteData(graph_list);
 

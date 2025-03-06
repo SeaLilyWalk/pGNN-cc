@@ -16,6 +16,11 @@ public:
     float get_value(int i, int j);
     int get_row_width();
     int get_col_width();
+    float get_min_val(int dim, int idx);
+    float get_max_val(int dim, int idx);
+    int get_min_idx(int dim, int idx);
+    int get_max_idx(int dim, int idx);
+    void get_row(int idx, std::vector<float> &row);
 
     void set_value(float value, int i, int j);
     void copy(const MyMatrix& m);
@@ -82,6 +87,129 @@ inline int MyMatrix::get_col_width() {
     return this->col_width_;
 }
 
+float MyMatrix::get_min_val(int dim, int idx) {
+    float re;
+    if (dim == 0) {
+        if (idx >= row_width_) {
+            std::cerr << "get min error: wrong idx!" << std::endl;
+            exit(0);
+        }
+        re = mat_[0][idx];
+        for (int i = 1; i < col_width_; ++i)
+            re = std::min(re, mat_[i][idx]);
+    } else if (dim == 1) {
+        if (idx >= col_width_) {
+            std::cerr << "get min error: wrong idx!" << std::endl;
+            exit(0);
+        }
+        re = mat_[idx][0];
+        for (int i = 1; i < row_width_; ++i)
+            re = std::min(re, mat_[idx][i]);
+    } else {
+        std::cerr << "get min error: dim error!" << std::endl;
+        exit(0);
+    }
+    return re;
+}
+
+float MyMatrix::get_max_val(int dim, int idx) {
+    float re;
+    if (dim == 0) {
+        if (idx >= row_width_) {
+            std::cerr << "get max error: wrong idx!" << std::endl;
+            exit(0);
+        }
+        re = mat_[0][idx];
+        for (int i = 1; i < col_width_; ++i)
+            re = std::max(re, mat_[i][idx]);
+    } else if (dim == 1) {
+        if (idx >= col_width_) {
+            std::cerr << "get max error: wrong idx!" << std::endl;
+            exit(0);
+        }
+        re = mat_[idx][0];
+        for (int i = 1; i < row_width_; ++i)
+            re = std::max(re, mat_[idx][i]);
+    } else {
+        std::cerr << "get max error: dim error!" << std::endl;
+        exit(0);
+    }
+    return re;
+}
+    
+int MyMatrix::get_min_idx(int dim, int idx) {
+    float min_val = 0;
+    int re = 0;
+    if (dim == 0) {
+        if (idx >= row_width_) {
+            std::cerr << "get min error: wrong idx!" << std::endl;
+            exit(0);
+        }
+        min_val = mat_[0][idx];
+        for (int i = 1; i < col_width_; ++i)
+            if (mat_[i][idx] < min_val) {
+                min_val = mat_[i][idx];
+                re = i;
+            }
+    } else if (dim == 1) {
+        if (idx >= col_width_) {
+            std::cerr << "get min error: wrong idx!" << std::endl;
+            exit(0);
+        }
+        min_val = mat_[idx][0];
+        for (int i = 1; i < row_width_; ++i)
+            if (mat_[idx][i] < min_val) {
+                min_val = mat_[idx][i];
+                re = i;
+            }
+    } else {
+        std::cerr << "get min error: dim error!" << std::endl;
+        exit(0);
+    }
+    return re;
+}
+
+int MyMatrix::get_max_idx(int dim, int idx) {
+    float max_val = 0;
+    int re = 0;
+    if (dim == 0) {
+        if (idx >= row_width_) {
+            std::cerr << "get max error: wrong idx!" << std::endl;
+            exit(0);
+        }
+        max_val = mat_[0][idx];
+        for (int i = 1; i < col_width_; ++i)
+            if (mat_[i][idx] > max_val) {
+                max_val = mat_[i][idx];
+                re = i;
+            }
+    } else if (dim == 1) {
+        if (idx >= col_width_) {
+            std::cerr << "get max error: wrong idx!" << std::endl;
+            exit(0);
+        }
+        max_val = mat_[idx][0];
+        for (int i = 1; i < row_width_; ++i)
+            if (max_val < mat_[idx][i]) {
+                max_val = mat_[idx][i];
+                re = i;
+            }
+    } else {
+        std::cerr << "get max error: dim error!" << std::endl;
+        exit(0);
+    }
+    return re;
+}
+
+void MyMatrix::get_row(int idx, std::vector<float> &row) {
+    if (idx >= col_width_) {
+        std::cerr << "get row error: wrong idx!" << std::endl;
+        exit(0);
+    }
+    for (int i = 0; i < row_width_; ++i)
+        row.push_back(mat_[idx][i]);
+}
+
 void MyMatrix::copy(const MyMatrix& m) {
     if (col_width_ != m.col_width_ || row_width_ != m.row_width_) {
         std::cerr << "copy error: copy wrong size!" << std::endl;
@@ -133,10 +261,13 @@ void MyMatrix::sub(const MyMatrix& a, const MyMatrix &b) {
 void MyMatrix::mult(const MyMatrix& a, const MyMatrix &b) {
     if (a.row_width_ != b.col_width_) {
         std::cerr << "mult error: illegal size of matrix!" << std::endl;
+        std::cout << a.col_width_ << ' ' << a.row_width_ << ' ' << b.col_width_ << ' ' << b.row_width_ << std::endl;
         exit(0);
     }
     if (a.col_width_ != this->col_width_ || b.row_width_ != this->row_width_) {
         std::cerr << "mult error: illegal size of matrix!" << std::endl;
+        std::cout << a.col_width_ << ' ' << a.row_width_ << ' ' << b.col_width_ << ' ' << b.row_width_ << std::endl;
+        std::cout << this->col_width_ << ' ' << this->row_width_ << std::endl;
         exit(0);
     }
     MyMatrix re(this->col_width_, this->row_width_);

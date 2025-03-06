@@ -13,15 +13,18 @@ private:
 public:
     Linear(
         int input_dim, int output_dim, 
-        const std::vector<std::vector<float>> &wdata, const std::vector<float> &bdata
+        const std::vector<std::vector<float>> &wdata, 
+        const std::vector<float> &bdata
     );
     ~Linear();
-    inline void forward(const MyMatrix& input, MyMatrix& output);
+    void forward(const MyMatrix& input, MyMatrix& output);
 };
+
 
 Linear::Linear(
     int input_dim, int output_dim, 
-    const std::vector<std::vector<float>> &wdata, const std::vector<float> &bdata
+    const std::vector<std::vector<float>> &wdata, 
+    const std::vector<float> &bdata
 ) {
     weight_ = new MyMatrix(output_dim, input_dim);
     std::vector<float> m;
@@ -32,6 +35,16 @@ Linear::Linear(
     bia_ = new MyMatrix(output_dim, 1);
     bia_->copy(bdata);
 }
+
+
+void Linear::forward(const MyMatrix& input, MyMatrix& output) {
+    output.mult(*(weight_), input);
+    for (int i = 0; i < output.row_width_; ++i) {
+        for (int j = 0; j < output.col_width_; ++j)
+            output.mat_[j][i] += bia_->mat_[j][0];
+    }
+}
+
 
 Linear::~Linear() {
     delete weight_;

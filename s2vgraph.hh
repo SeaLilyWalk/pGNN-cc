@@ -25,6 +25,7 @@ public:
     ~S2VGraph();
     int get_node_sum();
     int get_max_degree();
+    int get_label();
     const std::vector<std::pair<int, int>> &get_node_features();
     const std::vector<std::set<int>> &get_neighbors();
     const std::vector<std::pair<int, int>> &get_edges();
@@ -56,6 +57,11 @@ inline int S2VGraph::get_node_sum() {
 
 inline int S2VGraph::get_max_degree() {
     return max_degree_;
+}
+
+
+inline int S2VGraph::get_label() {
+    return label_;
 }
     
 

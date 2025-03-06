@@ -33,11 +33,13 @@ private:
 
     void get_node_feature(const std::vector<S2VGraph*> &data, MyMatrix& node_feature);
     void preprocess_graphpool(const std::vector<S2VGraph*> &data, MyMatrix& graph_pool);
-    void preprocess_neighbors_maxpool(
-        const std::vector<S2VGraph*> &data, MyMatrix *padded_neighbor_list
-    );
     void preprocess_neighbors_sumavepool(
         const std::vector<S2VGraph*> &data, MyMatrix *adj_block
+    );
+    MyMatrix* maxpool(const std::vector<S2VGraph*> &data,MyMatrix* h, int max_degree);
+    MyMatrix* nextLayer(
+        MyMatrix* h, const std::vector<S2VGraph*> &data, 
+        int layer_idx, int max_degree, MyMatrix* neighbor_block
     );
 
 public:
@@ -48,7 +50,9 @@ public:
     );
     ~GraphCNN();
 
-    void forward(const std::vector<S2VGraph*> &data, int tag_sum, std::vector<int> &output);
+    int get_input_dim();
+    int get_output_dim();
+    void forward(const std::vector<S2VGraph*> &data, int tag_sum, MyMatrix &output);
 };
 
 
@@ -116,7 +120,9 @@ GraphCNN::GraphCNN(
     for (int i = 0; i < num_layers_-1; ++i) {
         std::string gamma_tag = "batch_norms." + std::to_string(i) + ".weight";
         std::string beta_tag = "batch_norms." + std::to_string(i) + ".bias";
-        batchnorms_.push_back(new BatchNorm(hidden_dim_, data[gamma_tag][0], data[beta_tag][0]));
+        batchnorms_.push_back(
+            new BatchNorm(hidden_dim_, data[gamma_tag][0], data[beta_tag][0])
+        );
     }
     // mlp
     mlp_num_layers_ = 0;
@@ -130,6 +136,7 @@ GraphCNN::GraphCNN(
         build_mlp("mlps." + std::to_string(i) + ".", hidden_dim_, data);
 }
 
+
 GraphCNN::~GraphCNN() {
     for (auto p : linears_)
         delete p;
@@ -137,6 +144,16 @@ GraphCNN::~GraphCNN() {
         delete p;
     for (auto p : mlps_)
         delete p;
+}
+
+
+inline int GraphCNN::get_input_dim() {
+    return input_dim_;
+}
+
+
+inline int GraphCNN::get_output_dim() {
+    return output_dim_;
 }
 
 
@@ -171,30 +188,6 @@ void GraphCNN::preprocess_graphpool(
 }
 
 
-void GraphCNN::preprocess_neighbors_maxpool(
-    const std::vector<S2VGraph*> &data, MyMatrix *padded_neighbor_list
-) {
-    int max_degree = padded_neighbor_list->get_row_width();
-    if (!learn_eps_)
-        max_degree--;
-    int begin_idx = 0;
-    for (int i = 0; i < data.size(); ++i) {
-        auto g_neighbors = data[i]->get_neighbors();
-        int g_node_sum = data[i]->get_node_sum();
-        for (int j = 0; j < g_node_sum; ++j) {
-            int cnt = 0;
-            for (auto k : g_neighbors[j]) 
-                padded_neighbor_list->set_value(k+begin_idx, j+begin_idx, cnt++);
-            for (int k = g_neighbors[j].size(); k < max_degree; ++k)
-                padded_neighbor_list->set_value(-1, j+begin_idx, k);
-            if (!learn_eps_)
-                padded_neighbor_list->set_value(j+begin_idx, j+begin_idx, max_degree);
-        }
-        begin_idx += data[i]->get_node_sum();
-    }
-}
-
-
 void GraphCNN::preprocess_neighbors_sumavepool(
     const std::vector<S2VGraph*> &data, MyMatrix *adj_block
 ) {
@@ -213,42 +206,140 @@ void GraphCNN::preprocess_neighbors_sumavepool(
 }
 
 
+MyMatrix* GraphCNN::maxpool(
+    const std::vector<S2VGraph*> &data, MyMatrix* h, int max_degree
+) {
+    MyMatrix* pooled_rep = new MyMatrix(h->get_col_width(), h->get_row_width());
+    std::vector<float> dummy;
+    int row_length = h->get_row_width();
+    for (int i = 0; i < row_length; ++i)
+        dummy.push_back(h->get_min_val(0, i));
+    int begin_idx = 0;
+    for (const auto &g : data) {
+        int g_node_sum = g->get_node_sum();
+        auto neighbor_list = g->get_neighbors();
+        for (int i = 0; i < g_node_sum; ++i) {
+            std::vector<std::vector<float>> neighbors;
+            if (neighbor_list[i].size() < max_degree)
+                neighbors.push_back(dummy);
+            if (!learn_eps_) {
+                neighbors.push_back(std::vector<float>());
+                h->get_row(i+begin_idx, neighbors.back());
+            }
+            for (auto n : neighbor_list[i]) {
+                neighbors.push_back(std::vector<float>());
+                h->get_row(i+begin_idx, neighbors.back());
+            }
+            int l = neighbors.size();
+            for (int j = 0; j < row_length; ++j) {
+                float max_val = neighbors[0][j];
+                for (int k = 1; k < l; ++k)
+                    max_val = std::max(max_val, neighbors[k][j]);
+                pooled_rep->set_value(max_val, i+begin_idx, j);
+            }
+        }
+        begin_idx += g_node_sum;
+    }
+    return pooled_rep;
+}
+
+
+MyMatrix* GraphCNN::nextLayer(
+    MyMatrix* h, const std::vector<S2VGraph*> &data, 
+    int layer_idx, int max_degree, MyMatrix* neighbor_block
+) {
+    MyMatrix *pooled;
+    if (neighbor_pooling_type_ == "max") {
+        pooled = maxpool(data, h, max_degree);
+    } else {
+        pooled = new MyMatrix(neighbor_block->get_col_width(), h->get_row_width());
+        pooled->mult(*(neighbor_block), *(h));
+        if (neighbor_pooling_type_ == "average") {
+            for (int i = 0; i < neighbor_block->get_col_width(); ++i) {
+                float degree_sum = 0;
+                for (int j = 0; j < neighbor_block->get_row_width(); ++j)
+                    degree_sum += neighbor_block->get_value(i, j);
+                for (int j = 0; j < neighbor_block->get_row_width(); ++j) {
+                    float tmp = neighbor_block->get_value(i, j);
+                    tmp /= degree_sum;
+                    neighbor_block->set_value(tmp, i, j);
+                }
+            } // for (int i=0)
+        } // if (neighbor_pooling_type_ == "average")
+    }
+    if (learn_eps_) {
+        MyMatrix tmp(h->get_col_width(), h->get_row_width());
+        tmp.copy(*(h));
+        tmp.mult(epss_[layer_idx] + 1);
+        pooled->add(*(pooled), tmp);
+    }
+    MyMatrix *pooled_rep_t = new MyMatrix(hidden_dim_, pooled->get_col_width());
+    // 应该是需要将pooled转置，i维度和python文件中的不太一样
+    MyMatrix *pooled_t = new MyMatrix(pooled->get_row_width(), pooled->get_col_width());
+    pooled_t->transpose(*(pooled));
+    mlps_[layer_idx]->forward(*(pooled_t), *(pooled_rep_t));
+    batchnorms_[layer_idx]->forward(*(pooled_rep_t), *(pooled_rep_t));
+    pooled_rep_t->activation(*(pooled_rep_t), "ReLU");
+    MyMatrix *pooled_rep = new MyMatrix(pooled_rep_t->get_row_width(), pooled_rep_t->get_col_width());
+    pooled_rep->transpose(*(pooled_rep_t));
+    delete pooled;
+    delete pooled_t;
+    delete pooled_rep_t;
+    return pooled_rep;
+}
+
+
 void GraphCNN::forward(
-    const std::vector<S2VGraph*> &data, int tag_sum, std::vector<int> &output
+    const std::vector<S2VGraph*> &data, int tag_sum, MyMatrix &output
 ) {
     // get node features
     int node_sum = 0;
     for (const auto &g : data)
         node_sum += g->get_node_sum();
-    MyMatrix node_feature(node_sum, tag_sum);
-    get_node_feature(data, node_feature);
+    MyMatrix *node_feature = new MyMatrix(node_sum, tag_sum);
+    get_node_feature(data, *(node_feature));
 
     // get graph pool
     MyMatrix graph_pool(data.size(), node_sum);
     preprocess_graphpool(data, graph_pool);
 
     MyMatrix *neighbor_block;
+    int max_deg = 0;
+    for (const auto &g : data)
+        max_deg = std::max(g->get_max_degree(), max_deg);
 
     // get neibor list
-    if (neighbor_pooling_type_ == "max") {
-        int max_deg = 0;
-        for (const auto &g : data)
-            max_deg = std::max(g->get_max_degree(), max_deg);
-        int pad_size = max_deg;
-        if (!learn_eps_)
-            pad_size += 1;
-        MyMatrix padded_neighbor_list(node_sum, pad_size);
-        neighbor_block = new MyMatrix(node_sum, pad_size);
-        preprocess_neighbors_maxpool(data, neighbor_block);
-    } else {
+    if (neighbor_pooling_type_ != "max") {
         neighbor_block = new MyMatrix(node_sum, node_sum);
         preprocess_neighbors_sumavepool(data, neighbor_block);
     }
 
-    std::vector<MyMatrix> hidden_rep;
+    std::vector<MyMatrix*> hidden_rep;
     hidden_rep.push_back(node_feature);
 
-    delete neighbor_block;
+    for (int layer_idx = 0; layer_idx < num_layers_-1; ++layer_idx) 
+        hidden_rep.push_back(
+            nextLayer(hidden_rep.back(), data, layer_idx, max_deg, neighbor_block)
+        );
+    
+    int row_size;
+    for (int layer_idx = 0; layer_idx < num_layers_; ++layer_idx) {
+        if (layer_idx == 0)
+            row_size = input_dim_;
+        else
+            row_size = hidden_dim_;
+        MyMatrix pooled_h(data.size(), row_size);
+        pooled_h.mult(graph_pool, *(hidden_rep[layer_idx]));
+        delete hidden_rep[layer_idx];
+        MyMatrix tmp(output_dim_, data.size());
+        MyMatrix pooled_h_t(row_size, data.size());
+        pooled_h_t.transpose(pooled_h);
+        linears_[layer_idx]->forward(pooled_h_t, tmp);
+        output.add(output, tmp);
+    }
+
+    if (neighbor_pooling_type_ != "max")
+        delete neighbor_block;
 }
 
 #endif
