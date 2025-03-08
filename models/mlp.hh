@@ -50,12 +50,16 @@ void MLP::add_new_bn(
     int input_dim, int begin_idx,
     const std::vector<std::vector<float>> &model_data
 ) {
-    std::vector<float> gdata, bdata;
+    std::vector<float> gdata, bdata, rmdata, rvdata;
     for (auto num : model_data[begin_idx])
         gdata.push_back(num);
     for (auto num : model_data[begin_idx+1])
         bdata.push_back(num);
-    batchnorms_.push_back(new BatchNorm(input_dim, gdata, bdata));
+    for (auto num : model_data[begin_idx+2])
+        rmdata.push_back(num);
+    for (auto num : model_data[begin_idx+3])
+        rvdata.push_back(num);
+    batchnorms_.push_back(new BatchNorm(input_dim, gdata, bdata, rmdata, rvdata));
 }
 
 
@@ -84,7 +88,7 @@ MLP::MLP(
         begin_idx += output_dim+1;
         for (int i = 0; i < num_layers-1; ++i) {
             add_new_bn(hidden_dim, begin_idx, model_data);
-            begin_idx += 2;
+            begin_idx += 4;
         }
     }
 }
@@ -100,12 +104,21 @@ void MLP::forward(MyMatrix& input, MyMatrix& output) {
         h[1] = new MyMatrix(input.get_col_width(), input.get_row_width());
         h[1]->copy(input);
         linears_[0]->forward(*(h[1]), *(h[0]));
+        std::cout << "liner0: " << std::endl;
+        h[0]->check();
         batchnorms_[0]->forward(*(h[0]), *(h[0]));
+        std::cout << "batchnorm0: " << std::endl;
+        h[0]->check();
+        h[0]->activation(*(h[0]), "ReLU");
+        std::cout << "activation: " << std::endl;
+        h[0]->check();
+        std::cout << std::endl;
         delete h[1];
         h[1] = new MyMatrix(hidden_dim_, row_length);
         for (int i = 1; i < num_layers_-1; ++i) {
             linears_[i]->forward(*(h[(i+1)%2]), *(h[i%2]));
             batchnorms_[i]->forward(*(h[i%2]), *(h[i%2]));
+            h[i%2]->activation(*(h[i%2]), "ReLU");
         }
         linears_[num_layers_-1]->forward(*(h[num_layers_%2]), output);
         delete h[0];

@@ -88,9 +88,7 @@ void loadData(
     for (auto &g : graph_list) {
         // g->node_features_ = new MyMatrix(g->node_tags_.size(), tagset.size());
         for (int i = 0; i < g->node_tags_.size(); ++i)
-            for (auto tag : g->node_tags_)
-                // g->node_features_->set_value(1, i, tag2idx[tag]);
-                g->node_features_.push_back(std::pair<int, int>(i, tag2idx[tag]));
+            g->node_features_.push_back(std::pair<int, int>(i, tag2idx[g->node_tags_[i]]));
     }
 
     std::cout << "# classes: " << label_dict.size() << std::endl;

@@ -25,6 +25,7 @@ public:
     void set_value(float value, int i, int j);
     void copy(const MyMatrix& m);
     void copy(const std::vector<float>& m);
+    void check();
 
     void add(const MyMatrix& a, const MyMatrix &b);
     void sub(const MyMatrix& a, const MyMatrix &b);
@@ -334,6 +335,14 @@ void MyMatrix::activation(const MyMatrix& input, const std::string& type) {
                 m = m < 0 ? 0 : m;
             this->mat_[i][j] = m;
         }
+}
+
+void MyMatrix::check() {
+    for (int i = 0; i < row_width_; ++i) {
+        for (int j = 0; j < col_width_; ++j)
+            std::cout << mat_[j][i] << ' ';
+        std::cout << std::endl;
+    }
 }
 
 #endif

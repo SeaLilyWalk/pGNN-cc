@@ -88,6 +88,8 @@ void GraphCNN::build_mlp(
     for (int i = 0; i < mlp_num_layers_-1; ++i) {
         mlp_data.push_back(data[bn_tag + std::to_string(i) + ".weight"][0]);
         mlp_data.push_back(data[bn_tag + std::to_string(i) + ".bias"][0]);
+        mlp_data.push_back(data[bn_tag + std::to_string(i) + ".running_mean"][0]);
+        mlp_data.push_back(data[bn_tag + std::to_string(i) + ".running_var"][0]);
     }
     mlps_.push_back(new MLP(input_dim, hidden_dim_, hidden_dim_, mlp_num_layers_, mlp_data));
 }
@@ -120,8 +122,13 @@ GraphCNN::GraphCNN(
     for (int i = 0; i < num_layers_-1; ++i) {
         std::string gamma_tag = "batch_norms." + std::to_string(i) + ".weight";
         std::string beta_tag = "batch_norms." + std::to_string(i) + ".bias";
+        std::string rm_tag = "batch_norms." + std::to_string(i) + ".running_mean";
+        std::string rv_tag = "batch_norms." + std::to_string(i) + ".running_var";
         batchnorms_.push_back(
-            new BatchNorm(hidden_dim_, data[gamma_tag][0], data[beta_tag][0])
+            new BatchNorm(
+                hidden_dim_, data[gamma_tag][0], data[beta_tag][0], 
+                data[rm_tag][0], data[rv_tag][0]
+            )
         );
     }
     // mlp
@@ -274,10 +281,10 @@ MyMatrix* GraphCNN::nextLayer(
         pooled->add(*(pooled), tmp);
     }
     MyMatrix *pooled_rep_t = new MyMatrix(hidden_dim_, pooled->get_col_width());
-    // 应该是需要将pooled转置，i维度和python文件中的不太一样
     MyMatrix *pooled_t = new MyMatrix(pooled->get_row_width(), pooled->get_col_width());
     pooled_t->transpose(*(pooled));
     mlps_[layer_idx]->forward(*(pooled_t), *(pooled_rep_t));
+    pooled_rep_t->check();
     batchnorms_[layer_idx]->forward(*(pooled_rep_t), *(pooled_rep_t));
     pooled_rep_t->activation(*(pooled_rep_t), "ReLU");
     MyMatrix *pooled_rep = new MyMatrix(pooled_rep_t->get_row_width(), pooled_rep_t->get_col_width());

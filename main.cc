@@ -64,10 +64,10 @@ int main(int argc, char** argv) {
     load_model_data(model_path, model_data);
 
     // load the model
-    std::string graph_pooling_type = "max";
-    std::string neighbor_pooling_type = "max";
+    std::string graph_pooling_type = "sum";
+    std::string neighbor_pooling_type = "sum";
     GraphCNN model(
-        model_data, true, 
+        model_data, false, 
         graph_pooling_type, neighbor_pooling_type
     );
 
@@ -80,21 +80,20 @@ int main(int argc, char** argv) {
     int g_list_size = graph_list.size();
     int output_dim = model.get_output_dim();
     int correct = 0;
-    for (int i = 0; i < g_list_size; i += 64) {
+    for (int i = 128; i < g_list_size; i += 64) {
         std::vector<S2VGraph*> batch;
-        for (int j = i; j < i+64 && j < g_list_size; ++j) 
-            batch.push_back(graph_list[j]);
         int batch_size = 64;
         if (g_list_size - i < 64)
             batch_size = g_list_size - i;
+        for (int j = i; j < i+batch_size; ++j) 
+            batch.push_back(graph_list[j]);
         MyMatrix output(output_dim, batch_size);
         model.forward(batch, tag_sum, output);
         int pre;
         for (int j = i; j < i+batch_size; ++j) {
             pre = output.get_max_idx(0, j-i);
-            if (pre == graph_list[j]->get_label()) {
+            if (pre == graph_list[j]->get_label())
                 correct++;
-            }
         }
     }
     float accuracy =  correct;
