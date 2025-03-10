@@ -284,7 +284,6 @@ MyMatrix* GraphCNN::nextLayer(
     MyMatrix *pooled_t = new MyMatrix(pooled->get_row_width(), pooled->get_col_width());
     pooled_t->transpose(*(pooled));
     mlps_[layer_idx]->forward(*(pooled_t), *(pooled_rep_t));
-    pooled_rep_t->check();
     batchnorms_[layer_idx]->forward(*(pooled_rep_t), *(pooled_rep_t));
     pooled_rep_t->activation(*(pooled_rep_t), "ReLU");
     MyMatrix *pooled_rep = new MyMatrix(pooled_rep_t->get_row_width(), pooled_rep_t->get_col_width());

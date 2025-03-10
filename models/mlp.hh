@@ -104,15 +104,8 @@ void MLP::forward(MyMatrix& input, MyMatrix& output) {
         h[1] = new MyMatrix(input.get_col_width(), input.get_row_width());
         h[1]->copy(input);
         linears_[0]->forward(*(h[1]), *(h[0]));
-        std::cout << "liner0: " << std::endl;
-        h[0]->check();
         batchnorms_[0]->forward(*(h[0]), *(h[0]));
-        std::cout << "batchnorm0: " << std::endl;
-        h[0]->check();
         h[0]->activation(*(h[0]), "ReLU");
-        std::cout << "activation: " << std::endl;
-        h[0]->check();
-        std::cout << std::endl;
         delete h[1];
         h[1] = new MyMatrix(hidden_dim_, row_length);
         for (int i = 1; i < num_layers_-1; ++i) {

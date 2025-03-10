@@ -80,7 +80,7 @@ int main(int argc, char** argv) {
     int g_list_size = graph_list.size();
     int output_dim = model.get_output_dim();
     int correct = 0;
-    for (int i = 128; i < g_list_size; i += 64) {
+    for (int i = 0; i < g_list_size; i += 64) {
         std::vector<S2VGraph*> batch;
         int batch_size = 64;
         if (g_list_size - i < 64)
